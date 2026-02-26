@@ -1,14 +1,60 @@
-# Subir: docker compose up -d
-# Parar: docker compose down
+version: '3.8'
 
 services:
+  mongodb:
+    image: mongo:7.0
+    container_name: agrosolutions-mongo
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: agrosolutions_monitoracao
+    volumes:
+      - mongo_data:/data/db
+
   rabbitmq:
     image: rabbitmq:3-management
     container_name: agrosolutions-rabbitmq
     ports:
-      - "5672:5672"   # AMQP
-      - "15672:15672" # Management UI
-    # guest/guest só funciona em localhost; para rede use variáveis abaixo
-    # environment:
-    #   RABBITMQ_DEFAULT_USER: guest
-    #   RABBITMQ_DEFAULT_PASS: guest
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  monitoracao-api:
+    build:
+      context: .
+      dockerfile: dockerfile
+    container_name: agrosolutions-monitoracao-api
+    ports:
+      - "5094:8080"
+    environment:
+      - DOTNET_ENVIRONMENT=Production
+      - MongoDb__ConnectionString=mongodb://mongodb:27017
+      - MongoDb__DatabaseName=agrosolutions_monitoracao
+      - RabbitMQ__HostName=rabbitmq
+      - RabbitMQ__UserName=guest
+      - RabbitMQ__Password=guest
+      - RabbitMQ__FilaLeituras=agrosolutions.sensores.leituras
+    depends_on:
+      mongodb:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - agrosolutions-network
+
+volumes:
+  mongo_data:
+  rabbitmq_data:
+
+networks:
+  agrosolutions-network:
+    driver: bridge

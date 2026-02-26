@@ -7,7 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\AgroSolutions.Sensores.Dominio\AgroSolutions.Sensores.Dominio.csproj" />
+    <ProjectReference Include="..\AgroSolutions.Monitoracao.Dominio\AgroSolutions.Monitoracao.Dominio.csproj" />
   </ItemGroup>
 
   <ItemGroup>

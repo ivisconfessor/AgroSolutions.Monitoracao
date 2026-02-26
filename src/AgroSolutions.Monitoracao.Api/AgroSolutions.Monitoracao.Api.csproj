@@ -4,12 +4,12 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <UserSecretsId>e7f8a9b0-c1d2-4e3f-a5b6-c7d8e9f0a1b2</UserSecretsId>
+    <UserSecretsId>f3c2c0d1-9b0c-4d56-8d5a-0d8d8d91b4a1</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\AgroSolutions.Sensores.Aplicacao\AgroSolutions.Sensores.Aplicacao.csproj" />
-    <ProjectReference Include="..\AgroSolutions.Sensores.Infra\AgroSolutions.Sensores.Infra.csproj" />
+    <ProjectReference Include="..\AgroSolutions.Monitoracao.Aplicacao\AgroSolutions.Monitoracao.Aplicacao.csproj" />
+    <ProjectReference Include="..\AgroSolutions.Monitoracao.Infra\AgroSolutions.Monitoracao.Infra.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,67 +1,56 @@
-# AgroSolutions.Sensores
+# AgroSolutions.Monitoracao
 
-Microserviço de **ingestão de dados de sensores** (simulados) do AgroSolutions. Expõe API para receber umidade do solo, temperatura e precipitação por talhão, persiste em MongoDB e publica eventos no RabbitMQ.
+Microserviço de **motor de alertas** do AgroSolutions. Processa leituras de sensores e gera alertas automáticos quando condições críticas são atingidas.
+
+## Funcionalidades
+
+- **Motor de Alertas**: Aplica regras de monitoramento sobre dados de sensores
+- **Alerta de Seca**: Detecta quando umidade do solo fica abaixo de 30% por mais de 24 horas
+- **Consumer RabbitMQ**: Escuta fila `agrosolutions.sensores.leituras` de forma contínua
+- **Persistência MongoDB**: Armazena alertas gerados e estado de monitoramento
 
 ## Estrutura
 
-- **Api**: Minimal APIs (POST/GET leituras)
-- **Aplicacao**: Camada de aplicação
-- **Dominio**: Entidade `LeituraSensor`
-- **Infra**: MongoDB (MongoDB.Driver) + RabbitMQ (RabbitMQ.Client)
-- **Tests**: Projeto de testes
+- **Api**: Minimal APIs (GET/POST alertas) + Consumer hospedado _background service_
+- **Aplicacao**: `MotorAlertas` (lógica de regras) + `LeiturasQueueConsumerHostedService` (orquestração)
+- **Dominio**: Entidades `Alerta`, `EstadoMonitoramentoTalhao`, enumeradores
+- **Infra**: MongoDB (repositórios) + RabbitMQ (consumer)
 
 ## MongoDB (Mongo Atlas)
 
-### Pacote recomendado
+### Collections
 
-- **MongoDB.Driver** (oficial) – já referenciado no projeto.
+Crie no Mongo Atlas um database (ex.: `agrosolutions_monitoracao`) com as collections:
 
-### Collections sugeridas
+| Collection | Uso |
+|---|---|
+| **alertas** | Um alerta por documento: talhão, tipo (ex.: seca), mensagem, datas. |
+| **monitoramento_talhoes** | Estado mínimo por talhão: "seco desde", última leitura, última umidade. |
 
-Crie no Mongo Atlas um database (ex.: `agrosolutions_sensores`) e a collection abaixo. A API cria documentos na primeira escrita.
+### Índices recomendados
 
-| Collection          | Uso |
-|---------------------|-----|
-| **leituras_sensores** | Uma leitura por documento: talhão, data/hora, umidade (%), temperatura (°C), precipitação (mm). |
+Na collection `alertas`:
+- **Campos**: `id_talhao` (asc), `criado_em` (desc)
+- **Nome**: `ix_alertas_id_talhao_criado`
 
-### Índice recomendado (Mongo Atlas)
-
-Para consultas por talhão e período (séries temporais), crie um índice na collection `leituras_sensores`:
-
-- **Campos**: `id_talhao` (asc), `data_leitura` (desc)
-- **Nome sugerido**: `ix_leituras_id_talhao_data`
-
-No Atlas: Database → Collections → `leituras_sensores` → Indexes → Create Index:
-- Field: `id_talhao`, Order: 1
-- Field: `data_leitura`, Order: -1
-
-### Exemplo de documento (leituras_sensores)
-
-```json
-{
-  "_id": "<ObjectId>",
-  "id_talhao": "<UUID do talhão>",
-  "data_leitura": "<ISODate>",
-  "umidade_solo": 65.5,
-  "temperatura": 24.2,
-  "precipitacao": 0.0
-}
-```
+Na collection `monitoramento_talhoes`:
+- **Campo**: `id_talhao` (id único do talhão)
 
 ## RabbitMQ
 
-- **Fila**: `agrosolutions.sensores.leituras` (configurável em `RabbitMQ:FilaLeituras`)
-- Ao ingerir uma leitura, a API publica uma mensagem JSON nessa fila para outros microsserviços (ex.: Análise/Alertas).
+- **Fila**: `agrosolutions.sensores.leituras` (mesmo do `AgroSolutions.Sensores`)
+- O consumer escuta continuamente e processa cada leitura com o motor de alertas
+- Ack manual: sucesso = ack, erro = nack com requeue
 
 ## Configuração
 
-Em `appsettings.json` ou User Secrets (recomendado em dev):
+Em `appsettings.json` ou **User Secrets** (recomendado em dev):
 
 ```json
 {
   "MongoDb": {
     "ConnectionString": "<sua connection string do Mongo Atlas>",
-    "DatabaseName": "agrosolutions_sensores"
+    "DatabaseName": "agrosolutions_monitoracao"
   },
   "RabbitMQ": {
     "HostName": "localhost",
@@ -76,14 +65,70 @@ Em `appsettings.json` ou User Secrets (recomendado em dev):
 
 | Método | Rota | Descrição |
 |--------|------|-----------|
-| POST   | /leituras | Inserir leitura (idTalhao, umidadeSolo, temperatura, precipitacao; dataLeitura opcional) |
-| GET    | /leituras?idTalhao={guid}&de=&ate=&limite= | Listar leituras por talhão (filtros opcionais) |
-| GET    | /leituras/{id} | Obter leitura por id |
+| GET | /alertas/{id} | Obter alerta por id |
+| GET | /alertas?idTalhao={guid}&somenteAtivos={bool}&limite={int} | Listar alertas por talhão |
+| POST | /alertas/{id}/resolver | Resolver um alerta (marcar como resolvido) |
 
-## Executar
+## Swagger
 
-```bash
-dotnet run --project src/AgroSolutions.Sensores.Api
+Acesse: `https://localhost:<port>/swagger`
+
+## Motor de Alertas
+
+### Regra: Alerta de Seca
+
+1. **Condição**: Umidade do solo **< 30%**
+2. **Duração mínima**: > 24 horas na mesma condição
+3. **Ação**: Gera novo alerta (se não existir ativo) ou aguarda resolução
+4. **Resolução**: Quando umidade sobe acima de 30%, alerta é marcado como resolvido
+
+### Fluxo
+
+```
+Leitura de Sensor → Verifica Estado do Talhão → Aplica Regra de Seca
+  → Atualiza Estado → Se alerta gerado, persiste em DB
 ```
 
-Swagger: `https://localhost:7052/swagger` (ou porta configurada).
+## Executar Localmente
+
+### Pré-requisitos
+- .NET 8.0 SDK
+- MongoDB (local ou Atlas)
+- RabbitMQ (local ou gerenciado)
+- `AgroSolutions.Sensores` ativo (publicando leituras na fila)
+
+### Iniciar
+
+```bash
+# Restaurar dependências
+dotnet restore
+
+# Executar (porta padrão 5094 em desenvolvimento)
+dotnet run --project src/AgroSolutions.Monitoracao.Api
+```
+
+Swagger estará em: `https://localhost:<port>/swagger`
+
+## Docker
+
+Imagem disponível em `./dockerfile`. E.g.:
+
+```bash
+docker build -t agrosolutions-monitoracao:latest .
+docker run -p 5094:8080 -e MongoDb__ConnectionString="<mongo-uri>" \
+  -e RabbitMQ__HostName="<rabbit-host>" agrosolutions-monitoracao:latest
+```
+
+## Testes
+
+```bash
+dotnet test tests/AgroSolutions.Monitoracao.Tests
+```
+
+## Integração com Dashboard
+
+Os alertas são consultáveis via API REST e podem ser exibidos no dashboard se integrado ao `AgroSolutions.Usuario.API` ou UI frontend.
+
+---
+
+**[HACKATON FIAP 2024]**
